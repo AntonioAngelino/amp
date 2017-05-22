@@ -53,7 +53,6 @@ const appRoutes : Routes = [
     { path: 'swarms', component: SwarmsComponent, canActivate: [AuthGuard] },
     { path: 'password', component: PasswordComponent, canActivate: [AuthGuard] },
     { path: 'users', component: UsersComponent, canActivate: [AuthGuard] },
-    { path: 'password', component: PasswordComponent, canActivate: [AuthGuard] },
     { path: 'signup', component: SignupComponent, canActivate: [AuthGuard] },
   ]},
   { path: 'auth', component: AuthComponent, children: [
