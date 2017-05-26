@@ -51,7 +51,15 @@ export class OrganizationsService {
   }
 
   setCurrentOrganization(org : Organization) {
-    this.currentOrganization = org
+    this.httpService.switchOrganization(org.name).subscribe(
+      (rep) => {
+        let data = rep.json()
+        let token = data.auth
+        this.httpService.setToken(token)
+        localStorage.setItem('token', JSON.stringify({ token: token }));
+        this.currentOrganization = org
+      }
+    )
   }
 
   edit() {

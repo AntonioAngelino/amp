@@ -23,7 +23,7 @@ export class SigninComponent implements OnInit, OnDestroy {
     let currentUser = JSON.parse(localStorage.getItem('currentUser'));
     if (currentUser) {
       this.byPass = true
-      this.usersService.setCurrentUser(currentUser.username, currentUser.token, true)
+      this.usersService.setCurrentUser(currentUser.token, true)
     }
   }
 
@@ -36,7 +36,7 @@ export class SigninComponent implements OnInit, OnDestroy {
     this.httpService.login(form.value.username, form.value.password).subscribe(
       data => {
         let ret = data.json()
-        this.usersService.login(form.value.username, ret.auth)
+        this.usersService.login(ret.auth)
       },
       error => {
         let data = error.json()

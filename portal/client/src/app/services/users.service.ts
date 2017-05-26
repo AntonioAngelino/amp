@@ -53,22 +53,33 @@ export class UsersService {
 
   logout() {
     this.currentUser = this.noLoginUser
+    localStorage.removeItem('token');
     localStorage.removeItem('currentUser');
     this.menuService.navigate(["/auth", "signin"])
   }
 
-  login(username : string, token : string) {
-    localStorage.setItem('currentUser', JSON.stringify({ username: username, token: token }));
-    localStorage.setItem('lastUser', JSON.stringify({ username: username}));
-    this.setCurrentUser(username, token, true)
+  login(token : string) {
+    localStorage.setItem('token', JSON.stringify({ token: token }));
+    this.setCurrentUser(token, true)
   }
 
-  setCurrentUser(username : string, token : string, nav : boolean) {
+  setCurrentUser(token : string, nav : boolean) {
+    let plainToken = this.parseJwt(token)
+    if (plainToken.Type != 'login' || plainToken.iss !='amplifier') {
+      return
+    }
     this.httpService.setToken(token)
-    this.currentUser = new User(username, "", "")
+    this.currentUser = new User(plainToken.AccountName, "", "")
+    localStorage.setItem('currentUser', JSON.stringify({ username: this.currentUser.name }));
     this.httpService.userOrganization(this.currentUser.name).subscribe(
       data => {
         this.organizationsService.organizations = data
+        let currentOrganization : Organization
+        for (let org of data) {
+          if (org.name == plainToken.ActiveOrganization) {
+            this.organizationsService.currentOrganization = org
+          }
+        }
         this.httpService.users().subscribe(
           data => {
             this.users = data
@@ -88,6 +99,28 @@ export class UsersService {
         this.onUsersError.next(error)
       }
     )
+  }
+
+  switchToUserOnly() {
+    if (this.currentUser) {
+      this.httpService.switchOrganization(this.currentUser.name).subscribe(
+        (rep) => {
+          let data = rep.json()
+          let token = data.auth
+          this.httpService.setToken(token)
+          localStorage.setItem('token', JSON.stringify({ token: token }));
+          this.organizationsService.currentOrganization = this.organizationsService.noOrganization
+        }
+      )
+    }
+  }
+
+  parseJwt (token) {
+    let base64Url = token.split('.')[1];
+    let base64 = base64Url.replace('-', '+').replace('_', '/');
+    let ret = JSON.parse(window.atob(base64));
+    console.log("token: account="+ret.AccountName+", organization="+ret.ActiveOrganization)
+    return ret
   }
 
   signup(user : User, pwd : string) {
