@@ -89,6 +89,7 @@ export class UsersService {
           },
           error => {
             console.log(error)
+            this.logout()
             this.onUsersError.next(error)
           }
         );
@@ -116,6 +117,9 @@ export class UsersService {
   }
 
   parseJwt (token) {
+    if (!token) {
+      return {}
+    }
     let base64Url = token.split('.')[1];
     let base64 = base64Url.replace('-', '+').replace('_', '/');
     let ret = JSON.parse(window.atob(base64));

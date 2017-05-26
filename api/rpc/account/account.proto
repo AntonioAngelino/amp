@@ -144,7 +144,7 @@ service Account {
   };
   rpc RemoveResourceFromTeam (RemoveResourceFromTeamRequest) returns (google.protobuf.Empty) {
     option (google.api.http) = {
-      delete: "/v1/organizations/{organization_name}/teams/{team_name}/resources"
+      delete: "/v1/organizations/{organization_name}/teams/{team_name}/resources/{resource_id}"
     };
   };
   rpc ChangeTeamResourcePermissionLevel (ChangeTeamResourcePermissionLevelRequest) returns (google.protobuf.Empty) {
