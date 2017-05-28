@@ -14,6 +14,7 @@ export class SigninComponent implements OnInit, OnDestroy {
   message = ""
   messageError = ""
   byPass = false
+  login = ""
   constructor(
     public usersService : UsersService,
     private menuService : MenuService,
@@ -22,6 +23,7 @@ export class SigninComponent implements OnInit, OnDestroy {
   ngOnInit() {
     let currentUser = JSON.parse(localStorage.getItem('currentUser'));
     if (currentUser) {
+      this.login = currentUser.username
       let token = JSON.parse(localStorage.getItem('token'));
       if (token) {
         this.byPass = true

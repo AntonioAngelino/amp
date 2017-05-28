@@ -54,7 +54,6 @@ export class UsersService {
   logout() {
     this.currentUser = this.noLoginUser
     localStorage.removeItem('token');
-    localStorage.removeItem('currentUser');
     this.menuService.navigate(["/auth", "signin"])
   }
 
@@ -70,7 +69,7 @@ export class UsersService {
     }
     this.httpService.setToken(token)
     this.currentUser = new User(plainToken.AccountName, "", "")
-    localStorage.setItem('currentUser', JSON.stringify({ username: this.currentUser.name }));
+    localStorage.setItem('currentUser', JSON.stringify({ username: this.currentUser.name, email: this.currentUser.email }));
     this.httpService.userOrganization(this.currentUser.name).subscribe(
       data => {
         this.organizationsService.organizations = data
@@ -130,6 +129,7 @@ export class UsersService {
   signup(user : User, pwd : string) {
     this.users.push(user)
     //this.onUserEndCreateMode.emit();
+    localStorage.setItem('currentUser', JSON.stringify({ username: user.name, email: user.email }));
     this.menuService.navigate(["/auth", "signin"])
   }
 
