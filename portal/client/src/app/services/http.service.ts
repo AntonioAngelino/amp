@@ -354,6 +354,7 @@ export class HttpService {
   private setHeaders() {
     var headers = new Headers
     headers.set('Authorization', 'amp '+this.token)
+    headers.set('Grpc-Timeout', '3')
     return headers
   }
 
