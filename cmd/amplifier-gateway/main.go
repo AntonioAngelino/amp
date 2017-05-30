@@ -41,9 +41,9 @@ func allowCORS(h http.Handler) http.Handler {
 }
 
 func preflightHandler(w http.ResponseWriter, r *http.Request) {
-	eheaders := []string{"Authorization", "X-Custom-header", "Grpc-Metadata-Amp.token"}
+	eheaders := []string{"Authorization", "X-Custom-header", "Grpc-Metadata-Amp.token", "Grpc-Timeout"}
 	w.Header().Set("Access-Controls-Expose-Headers", strings.Join(eheaders, ","))
-	aheaders := []string{"Content-Type", "Accept", "Authorization", "Grpc-Metadata-Amp.token"}
+	aheaders := []string{"Content-Type", "Accept", "Authorization", "Grpc-Metadata-Amp.token", "Grpc-Timeout"}
 	w.Header().Set("Access-Control-Allow-Headers", strings.Join(aheaders, ","))
 	methods := []string{"GET", "HEAD", "POST", "PUT", "DELETE"}
 	w.Header().Set("Access-Control-Allow-Methods", strings.Join(methods, ","))
