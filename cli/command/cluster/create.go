@@ -20,13 +20,16 @@ func NewCreateCommand(c cli.Interface) *cobra.Command {
 	}
 
 	flags := cmd.Flags()
-	flags.IntVarP(&opts.workers, "workers", "w", 2, "Initial number of worker nodes")
 	flags.IntVarP(&opts.managers, "managers", "m", 3, "Intial number of manager nodes")
-	flags.StringVar(&opts.provider, "provider", "local", "Cluster provider")
+	flags.IntVarP(&opts.workers, "workers", "w", 2, "Initial number of worker nodes")
 	flags.StringVar(&opts.name, "name", "", "Cluster Label")
-	flags.StringVarP(&opts.tag, "tag", "t", "0.11.0", "Specify tag for cluster images (default is '0.11.0', use 'local' for development)")
-	flags.StringVarP(&opts.registration, "registration", "r", configuration.RegistrationNone, "Specify the registration policy (default is 'none', possible values are 'none' or 'email')")
-	flags.BoolVarP(&opts.notifications, "notifications", "n", false, "Enable/disable server notifications (default is 'false')")
+	flags.StringVarP(&opts.tag, "tag", "t", "0.11.0", "Specify tag for cluster images, use 'local' for development")
+	flags.StringVar(&opts.provider, "provider", "local", "Cluster provider, options are local, docker and aws")
+	flags.StringVar(&opts.region, "region", "", "Specify region for deployment on selected cloud provider")
+	flags.StringVar(&opts.domain, "domain", "", "Specify the ssh key for deployment on selected cloud provider")
+	flags.StringVarP(&opts.registration, "registration", "r", configuration.RegistrationNone, "Specify the registration policy, options are 'none' or 'email'")
+	flags.BoolVarP(&opts.notifications, "notifications", "n", false, "Enable/disable server notifications")
+	flags.IntVarP(&opts.log, "log", "l", 4, "Logging level. 0 is least verbose, Max is 5")
 	return cmd
 }
 
@@ -36,19 +39,20 @@ func create(c cli.Interface, cmd *cobra.Command) error {
 	m := map[string]string{
 		"workers":       "-w",
 		"managers":      "-m",
-		"provider":      "-t",
-		"name":          "-l",
+		"name":          "-i",
 		"tag":           "-T",
-		"registration":  "-r",
+		"provider":      "-p",
+		"region":				 "-g",
+		"domain":				 "-D",
+		"registration":	 "-r",
 		"notifications": "-n",
+		"log":					 "-l",
 	}
 
-	// TODO: only supporting local cluster management for this release
 	// the following ensures that flags are added before the final command arg
 	// TODO: refactor reflag to handle this
 	args := []string{"bin/deploy"}
 	args = reflag(cmd, m, args)
-	args = append(args, DefaultLocalClusterID)
-	env := map[string]string{"TAG": opts.tag, "REGISTRATION": opts.registration, "NOTIFICATIONS": strconv.FormatBool(opts.notifications)}
+	env := map[string]string{"TAG": opts.tag, "REGION": opts.region, "DOMAIN": opts.domain, "REGISTRATION": opts.registration, "NOTIFICATIONS": strconv.FormatBool(opts.notifications)}
 	return queryCluster(c, args, env)
 }

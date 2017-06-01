@@ -30,9 +30,28 @@ DEPLOYMENT_TARGET=local
 CID=
 amps=docker
 
-# get and optionally set the target of the deployment: local | dind | aws
+# log level vars
+# use 3 to 8 file descriptors for output.
+# log types := ( "[CRIT]:" = 3, "[ERR]:" = 4, "[WARN]:" = 5, "[NOTE]:" = 6, "[INFO]:" = 7, "[DEBUG]:" = 8)
+LOG_LEVEL=7
+MAX_LOG_LEVEL=8
+
+# set the file descriptor targets for the log level
+log() {
+  for v in $(seq 3 $LOG_LEVEL)
+  do
+    (( "$v" <= "$MAX_LOG_LEVEL" )) && eval exec "$v>&2"
+  done
+
+  for v in $(seq $(( LOG_LEVEL+1 )) $MAX_LOG_LEVEL )
+  do
+    (( "$v" > "$LOG_LEVEL" )) && eval exec "$v>/dev/null"
+  done
+}
+
+# get and optionally set the target of the deployment: local | docker | aws
 deployment_target() {
-  [[ ! -z $1 ]] && DEPLOYMENT_TARGET=$1
+  [[ -n $1 ]] && DEPLOYMENT_TARGET=$1
   echo $DEPLOYMENT_TARGET
 }
 
@@ -44,14 +63,22 @@ cluster_create() {
   _target="$(deployment_target)"
   case $_target in
   local)
-    docker node inspect self -f '{{.ID}}' 2>/dev/null || echo "unset"
+    docker node inspect self -f '{{.ID}}' 2>/dev/null || echo "[ERR]: the swarm is not initialised" >&4
     ;;
-  dind|aws)
+  docker)
+    # async
+    # docker deployment uses default provider and target in bootstrap
+    if [[ $# -eq 0 ]]; then
+      bootstrap $BOOTSTRAP_OPTIONS -f
+    else
+      bootstrap $BOOTSTRAP_OPTIONS -f -i $1
+    fi ;;
+  aws)
     # async
     if [[ $# -eq 0 ]]; then
-      bootstrap $BOOTSTRAP_OPTIONS -t "$_target" -f
+      bootstrap $BOOTSTRAP_OPTIONS -p "$_target" -t "aws" -f
     else
-      bootstrap $BOOTSTRAP_OPTIONS -t "$_target" -fi $1
+      bootstrap $BOOTSTRAP_OPTIONS -p "$_target" -t "aws" -i $1 -f
     fi ;;
   esac
 }
@@ -61,10 +88,10 @@ cluster_destroy() {
   local _target
   _target="$(deployment_target)"
   case $_target in
-  dind|aws)
-    bootstrap -t $_target -di $1 ;;
   local)
     docker stack rm amp ;;
+  docker|aws)
+    bootstrap -t $_target -d -l $LOG_LEVEL -i $1 ;;
   esac
 }
 
@@ -77,8 +104,8 @@ cluster_status() {
   _target=$(deployment_target)
   case $_target in
   local) ;;
-  dind|aws)
-    bootstrap -t $_target -s $_clusterid >/dev/null 2>&1 ;;
+  docker|aws)
+    bootstrap -t $_target -s $_clusterid -l $LOG_LEVEL >/dev/null 2>&1 ;;
   esac
 }
 
@@ -92,18 +119,18 @@ cluster_nodecount() {
   local) # single manager node
     echo 1
     ;;
-  dind|aws)
-    _count=$(bootstrap -t $_target -l $_clusterid | wc -l)
+  docker|aws)
+    _count=$(bootstrap -t $_target -L $_clusterid -l $LOG_LEVEL | wc -l)
     if [[ $_count -gt 0 ]]; then
       echo $_count
       return 0
     fi
-    echo "node count failed" >&2
-    bootstrap -t $_target -l $_clusterid >&2
+    echo "[ERR]: node count failed" >&4
+    bootstrap -t $_target -L $_clusterid -l $LOG_LEVEL
     return 1
     ;;
   *)
-    echo "unknown deployment target ($_target)" >&2
+    echo "[ERR]: unknown deployment target ($_target)" >&4
     return 1 ;;
   esac
 }
@@ -156,7 +183,7 @@ set_deployment_variables(){
     domainname=$localdomainname
     return
     ;;
-  dind)
+  docker)
     dockerhost=m1
     registryhost=127.0.0.1
     create_amp_stacks_volume
@@ -168,7 +195,7 @@ set_deployment_variables(){
     export DOCKERHOST=$dockerhost
     ;;
   aws)
-    local awscf="$awscli --profile ${PROFILE:-default} --region ${REGION:-us-west-2} cloudformation"
+    local awscf="$awscli --profile ${PROFILE:-default} --region ${REGION:$REGION} cloudformation"
     local _clusterid
     local _publicip
     _clusterid="$CID"
@@ -194,8 +221,8 @@ set_deployment_variables(){
   registryurl=$(echo $registryhost | cut -d, -f1)
   # if no scheme, add the default port
   if echo $registryurl | grep -qv "://" && [[ -n "$registryurl" ]]; then registryurl=$registryurl:5000; fi
-  echo "Docker host = $dockerhost"
-  echo "Docker registry = $registryurl"
+  echo "[INFO]: Docker host = $dockerhost" >&7
+  echo "[INFO]: Docker registry = $registryurl" >&7
 }
 
 checkexit() {
@@ -206,39 +233,39 @@ checkexit() {
 cleanup() {
   docker volume rm amp-stacks &>/dev/null
   docker volume rm amp-secrets &>/dev/null
-  [[ SUCCESS -ne 1 && ! -z $CID && $(deployment_target) = "dind" ]] && echo "clean up" && bootstrap -d $CID
-  [[ SUCCESS -ne 1 && ! -z $CID && $(deployment_target) = "local" ]] && echo "clean up" && docker stack rm amp
+  [[ SUCCESS -ne 1 && ! -z $CID && $(deployment_target) = "docker" ]] && log "[INFO]: clean up" >&7 && bootstrap -d -l $LOG_LEVEL $CID
+  [[ SUCCESS -ne 1 && ! -z $CID && $(deployment_target) = "local" ]] && log "[INFO]: clean up" >&7 && docker stack rm amp
 }
 
 ok() {
-  echo ok $1
+  echo "[DEBUG]: ok $1" >&8
 }
 
 pushimage() {
-  echo "push image: $1/$2"
-  docker tag $2 $1/$2
+  echo "[INFO]: push image: $1/$2" >&6
+  docker tag $2 $1/$2 >&8
   checkexit "error tagging image"
-  docker push $1/$2
+  docker push $1/$2 >&8
   checkexit "error pushing image"
   ok
 }
 
 deploystack() {
-  echo "deploy $1 => $2"
-  $amps stack deploy -c $stacks_path/$1 $2
+  echo "[DEBUG]: deploying $1 => $2" >&8
+  $amps stack deploy -c $stacks_path/$1 $2 >&8
   checkexit "error deploying stack"
   ok
 }
 
 # can only use this once the swarm is ready
 lookup() {
-  [[ -z $amps ]] && echo "error to use lookup before swarm is created" && return 1
+  [[ -z $amps ]] && echo "[ERR]: error to use lookup before swarm is created" >&4 && return 1
   $amps run --rm --network=ampnet appcelerator/alpine:3.5.2 nslookup $1
 }
 
 # can only use this once the swarm is ready
 kurl() {
-  [[ -z $amps ]] && echo "error to use kurl before swarm is created" && return 1
+  [[ -z $amps ]] && echo "[ERR]: error to use kurl before swarm is created" >&4 && return 1
   $amps run --rm --network=ampnet appcelerator/alpine:3.5.2 curl -L -s -o /dev/null -w '%{http_code}\n' $1
 }
 
@@ -253,18 +280,18 @@ prepare_amplifier_configuration(){
     mkdir -p "$SECRETSDIR"
     echo "JWTSecretKey: "$(docker run --rm alpine sh -c '< /dev/urandom tr -dc [:alnum:] | head -c${1:-128}') > "$_conf"
   else
-    echo "using existing configuration for the amplifier_yml secret" >&2
+    echo "[DEBUG]: using existing configuration for the amplifier_yml secret" >&8
   fi
   # copy the configuration in the amp-secrets volume
   cid=$(docker run -d --rm -v amp-secrets:/secrets alpine:3.5 sleep 15)
   if [[ $? -ne 0 || -z "$cid" ]]; then return 1; fi
   docker cp "$_conf" $cid:/secrets/
   docker kill "$cid" >/dev/null 2>&1
-  $amps secret create "amplifier_yml" "$secrets_path/$(basename $_conf)" && echo "secret amplifier_yml successfully created" >&2
+  $amps secret create "amplifier_yml" "$secrets_path/$(basename $_conf)" && echo "[DEBUG]: secret amplifier_yml successfully created" >&8
 }
 
 # pushes certificates in a Docker secret, ready to use by services in stack files
-# for local/dind bootstrap, a self signed certificate is created
+# for local/docker bootstrap, a self signed certificate is created
 # for cloud bootstrap, a valid certificate should be provided
 # it has to be in the stacks folder, to allow access to the Docker client
 prepare_certificates() {
@@ -278,12 +305,12 @@ prepare_certificates() {
 
   mkdir -p "$SECRETSDIR"
   case $(deployment_target) in
-  local|dind)
+  local|docker)
     mv "$(mkcert)" "$certfile" ;;
   esac
   if [[ ! -f "$certfile" ]]; then
     # TODO use certbot
-    echo "can't find certificate $certfile" >&2
+    echo "[ERR]: can't find certificate $certfile" >&4
     return 1
   fi
   # copy the certificate in the amp-secrets volume
@@ -291,74 +318,92 @@ prepare_certificates() {
   if [[ $? -ne 0 || -z "$cid" ]]; then return 1; fi
   docker cp "$certfile" $cid:/secrets/$name.pem
   docker kill "$cid" >/dev/null 2>&1
-  echo "creating the certificate secret"
-  $amps secret create "certificate_atomiq" "$secrets_path/$name.pem" && echo "secret certificate_atomiq successfully created" >&2
+  echo "[DEBUG]: creating the certificate secret" >&8
+  $amps secret create "certificate_atomiq" "$secrets_path/$name.pem" && echo "[DEBUG]: secret certificate_atomiq successfully created" >&8
 }
 
 # process the command line options and arguments
 parse_cmd() {
-  while getopts ":w:m:t:l:T:c:r:n:p:g:D:" opt; do
+  while getopts ":w:m:L:i:p:T:r:n:g:D:l:c:" opt; do
     case $opt in
-    w|m|t|l) # just pass it to the bootstrap script
+    w|m|L) # just pass it to the bootstrap script
       BOOTSTRAP_OPTIONS="$BOOTSTRAP_OPTIONS -${opt} $OPTARG"
+      ;;
+    i) # id of the cluster
+      CID=$OPTARG
+      ;;
+    p) # provider
+      deployment_target $OPTARG >/dev/null
       ;;
     T) # tag for images to deploy
       export TAG=$OPTARG
       ;;
     r) # registration policy
+      if [[ $DEPLOYMENT_TARGET != "docker" ]]; then
+        echo "[NOTE]: Can only set registration policy on docker deployment" >&6
+      fi
       export REGISTRATION=$OPTARG
       ;;
     n) # notifications
+      if [[ $DEPLOYMENT_TARGET != "docker" ]]; then
+        echo "[NOTE]: Can only enable server notifications on docker deployment" >&6
+      fi
       export NOTIFICATIONS=$OPTARG
       ;;
+    g) # region
+      if [[ $DEPLOYMENT_TARGET = "local" || $DEPLOYMENT_TARGET = "docker" ]]; then
+        echo "[NOTE]: Don't need to supply region for $DEPLOYMENT_TARGET deployment" >&6
+      fi
+      export REGION=$OPTARG
+      ;;
     D) # domain for cluster deployment
+      if [[ $DEPLOYMENT_TARGET = "local" || $DEPLOYMENT_TARGET = "docker" ]]; then
+        echo "[NOTE]: Don't need to supply domain for $DEPLOYMENT_TARGET deployment" >&6
+      fi
       BOOTSTRAP_OPTIONS="$BOOTSTRAP_OPTIONS -${opt} $OPTARG"
       DOMAIN=$OPTARG
       if [[ ! -f $SECRETSDIR/${DOMAIN}.pem ]]; then
-        echo "can't find ${DOMAIN}.pem in $SECRETSDIR, abort" >&2
+        echo "[ERR]: can't find ${DOMAIN}.pem in $SECRETSDIR, abort" >&4
         exit 1
       fi
+      ;;
+    l) # log level for filtering output, +3 to align with log types
+      LOG_LEVEL=$(( OPTARG+3 ))
       ;;
     c)
       CHECK=1
       ;;
-    p) # provider
-      deployment_target $OPTARG >/dev/null
-      ;;
-    g) # region for cluster deployment
-      REGION=$OPTARG
-      ;;
     esac
   done
   shift "$((OPTIND-1))"
-
-  CID=$1
 }
 
 bootstrap_cluster() {
+  log
   if [[ -z "$CID" ]]; then
-    echo "bootstrapping cluster on $DEPLOYMENT_TARGET"
+    echo "[INFO]: Deploying cluster on $DEPLOYMENT_TARGET" >&7
     CID=$(cluster_create)
     checkexit "bootstrap failed"
-    [[ -n "$CID" ]] && echo $CID
+    [[ -n "$CID" ]] && echo "[INFO]: Cluster id: $CID" >&7
     checkexit "no clusterid"
   else
+    echo "[INFO]: Deploying cluster with cluster id $CID on $DEPLOYMENT_TARGET." >&7
     cluster_status $CID || cluster_create $CID
     checkexit "bootstrap failed"
   fi
 
   set_deployment_variables
 
-  echo "wait for cluster"
+  echo "[DEBUG]: wait for cluster" >&8
   case $(deployment_target) in
   local) # for local, enable swarm mode if not already enabled and create the ampnet overlay network
-    docker node ls &>/dev/null
+    docker node ls >&8
     if [[ $? -ne 0 ]]; then
-      docker swarm init --advertise-addr 127.0.0.1 &>/dev/null && CID=$(docker node inspect self -f '{{.ID}}')
+      docker swarm init --advertise-addr 127.0.0.1 >&8 && CID=$(docker node inspect self -f '{{.ID}}')
     fi
-    docker network ls | grep ampnet &>/dev/null
+    docker network ls | grep ampnet >&8
     if [[ $? -ne 0 ]]; then
-      docker network create --attachable -d overlay ampnet
+      docker network create --attachable -d overlay ampnet >&7
     fi
     ;;
   *)
@@ -371,28 +416,28 @@ bootstrap_cluster() {
   typeset -i nodecount
   nodecount=$(cluster_nodecount $CID)
   checkexit "failed to count cluster nodes"
-  echo "cluster size is $nodecount"
+  echo "[INFO]: cluster size is $nodecount" >&7
 
   if [[ $(deployment_target) != "local" ]]; then
-    echo "wait for swarm mode"
+    echo "[DEBUG]: wait for swarm mode" >&8
     swarmcheck -t 300 -c $nodecount
     checkexit "swarm mode timed out"
     ok
 
     if [[ -n "$registryurl" ]]; then
-      echo "wait for registry"
+      echo "[DEBUG]: wait for registry" >&8
       curlcheck "${registryurl}/v2/" 200 180
       checkexit "registry timed out"
       ok
     fi
 
     if [[ -n "$registryurl" && "x$TAG" = "xlocal" ]]; then
-      echo "push images to cluster"
+      echo "[INFO]: push images to cluster" >&7
       for image in amplifier amplifier-gateway ampbeat agent portal; do
         pushimage "${registryurl}" "appcelerator/${image}:${TAG:-local}"
       done
     else
-      echo "image push to cluster is ignored (tag=${TAG:-latest})"
+      echo "[DEBUG]: image push to cluster is ignored (tag=${TAG:-latest})" >&8
     fi
   fi
 }
@@ -405,47 +450,46 @@ deploy_stacks() {
     export NODE_ROLE=manager
   fi
 
-  echo "deploy amp monitoring stack to cluster - stage 1"
+  echo "[INFO]: deploying amp monitoring stack to cluster - stage 1" >&7
   deploystack ampmon.1.stack.yml amp
-  echo "wait for all amp monitoring stage 1 stack service replicas to be running"
-
+  echo "[DEBUG]: wait for all amp monitoring stage 1 stack service replicas to be running" >&8
   servicescheck $maxwait
   checkexit "amp monitoring stage 1 service replica checks timed out"
   ok
 
-  echo "deploy amp monitoring stack to cluster - stage 2"
+  echo "[INFO]: deploying amp monitoring stack to cluster - stage 2" >&7
   deploystack ampmon.2.stack.yml amp
-  echo "wait for all amp monitoring stage 2 service replicas to be running ($maxwait sec)"
+  echo "[DEBUG]: wait for all amp monitoring stage 2 service replicas to be running ($maxwait sec)" >&8
   servicescheck $maxwait
   checkexit "amp monitoring stage 2 service replica checks timed out"
   ok
 
-  echo "deploy portal stack to cluster"
+  echo "[INFO]: deploying portal stack to cluster" >&7
   deploystack portal.stack.yml amp
-  echo "wait for all portal service replicas to be running ($maxwait sec)"
+  echo "[DEBUG]: wait for all portal service replicas to be running ($maxwait sec)" >&8
   servicescheck $maxwait
   checkexit "portal service replica checks timed out"
   ok
 
   prepare_amplifier_configuration
   checkexit "secret creation for amplifier failed"
-  echo "deploy amp stack to cluster"
+  echo "[INFO]: deploying amp stack to cluster" >&7
   deploystack amp.stack.yml amp
-  echo "wait for all amp service replicas to be running ($maxwait sec)"
+  echo "[DEBUG]: wait for all amp service replicas to be running ($maxwait sec)" >&8
   servicescheck $maxwait
   checkexit "amp service replica checks timed out"
   ok
 
   prepare_certificates $domainname
   if [[ $? -eq 0 ]]; then
-    echo "deploy amp proxy stack to cluster"
+    echo "[INFO]: deploying amp proxy stack to cluster" >&7
     deploystack ampproxy.stack.yml amp
-    echo "wait for all amp proxy service replicas to be running ($maxwait sec)"
+    echo "[DEBUG]: wait for all amp proxy service replicas to be running ($maxwait sec)" >&8
     servicescheck $maxwait
     checkexit "amp proxy service replica checks timed out"
     ok
   else
-    echo "won't deploy the proxy stack, there's no certificate"
+    echo "[NOTE]: won't deploy the proxy stack, there's no certificate" >&6
   fi
 }
 

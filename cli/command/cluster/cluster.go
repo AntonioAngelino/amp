@@ -9,11 +9,14 @@ import (
 type clusterOpts struct {
 	managers      int
 	workers       int
-	provider      string
 	name          string
 	tag           string
+	provider      string
+	region				string
+	domain				string
 	registration  string
 	notifications bool
+	log						int
 }
 
 const (
@@ -24,11 +27,14 @@ var (
 	opts = &clusterOpts{
 		managers:      3,
 		workers:       2,
-		provider:      "local",
 		name:          "",
 		tag:           "latest",
+		provider:      "local",
+		region:				 "",
+		domain:				 "",
 		registration:  configuration.RegistrationDefault,
 		notifications: true,
+		log:			 		 4,
 	}
 )
 
