@@ -41,15 +41,17 @@ func (s *Server) trapSignal() {
 }
 
 func (s *Server) start() {
+
 	r := mux.NewRouter()
 	n := negroni.Classic()
 	n.Use(gzip.Gzip(gzip.DefaultCompression))
 	n.UseHandler(r)
-
+	http.Handle("/cant-touch-this", http.NotFoundHandler())
 	abspath, err := filepath.Abs("./public")
 	if err != nil {
 		fmt.Print(err)
 	}
+
 	r.PathPrefix("/").Handler(http.FileServer(http.Dir(abspath)))
 	log.Printf("AMP-UI server starting on %s\n", s.conf.port)
 	if err := http.ListenAndServe(":"+s.conf.port, n); err != nil {

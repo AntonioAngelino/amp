@@ -14,6 +14,7 @@ export class SignupComponent implements OnInit {
   message = ""
   messageError = ""
   submitCaption = "Submit"
+  validateLink = false
 
   constructor(
     public usersService : UsersService,
@@ -21,6 +22,7 @@ export class SignupComponent implements OnInit {
     private httpService : HttpService) { }
 
   ngOnInit() {
+    this.validateLink = false
     this.menuService.setItemMenu('users', 'sign up')
   }
 
@@ -47,20 +49,25 @@ export class SignupComponent implements OnInit {
             this.submitCaption = "Done"
           },
           err => {
-            console.log(err)
-            this.messageError = data.error
+            let error = err.json()
+            this.messageError = error.error
           }
         )
       },
       error => {
-        console.log(error)
         let data = error.json()
         if (!data.error) {
-          this.messageError = "Certificat issue: You need to import amp certificate in your browser. See documentation"
+          this.validateGtw()
+          return
         }
         this.messageError = data.error
       }
     )
+  }
+
+  validateGtw() {
+    this.validateLink = true
+    this.messageError = "First time: Certificat issue: Please, clic on the link below and accept the connection"
   }
 
   returnBack() {
